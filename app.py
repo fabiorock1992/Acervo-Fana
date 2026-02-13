@@ -1,16 +1,15 @@
 import os
-from flask import Flask
+from flask import Flask, render_template
 from pymongo import MongoClient
 
 app = Flask(__name__)
 
+mongo_uri = os.environ.get("MONGODB_URI")
+client = MongoClient(mongo_uri)
+db = client["meubanco"]
+collection = db["filmes"]
+
 @app.route("/")
 def home():
-    try:
-        mongo_uri = os.environ.get("MONGODB_URI")
-        client = MongoClient(mongo_uri)
-        db = client["meubanco"]  # ajuste para o nome real do banco
-        collection_names = db.list_collection_names()
-        return f"Conectado ao MongoDB! Coleções: {collection_names}"
-    except Exception as e:
-        return f"Erro na conexão: {str(e)}"
+    filmes = list(collection.find({}, {"_id": 0}))
+    return render_template("index.html", filmes=filmes)
