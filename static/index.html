@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>ACERVO FANA</title>
+<style>
+  body{font-family:Arial;margin:20px;background-size:cover;}
+  input,select,button{margin:5px;}
+  table{border-collapse:collapse;width:100%;margin-top:60px;display:none;}
+  th,td{border:1px solid #ccc;padding:8px;text-align:left;}
+  th{background:#f0f0f0;}
+  .barraAZ button{margin:2px;padding:6px 12px;}
+  .barraAZ button.selecionado{background:green;color:#fff;}
+  .skin{background:#007BFF;color:#fff;border:none;padding:6px 10px;cursor:pointer;}
+  .skin:hover{background:#0056b3;}
+  .msg{margin:10px 0;font-weight:bold;}
+  h1{display:flex;align-items:center;margin-top:60px;}
+  .disco{width:40px;height:40px;border-radius:50%;margin-right:10px;
+         background:radial-gradient(circle,#fff,#ccc 40%,#999 70%,#666);
+         box-shadow:0 0 5px rgba(0,0,0,.5);}
+  #contador{position:fixed;top:0;left:0;right:0;background:#fff;
+            padding:10px;border-bottom:2px solid #ccc;
+            font-size:14px;font-weight:bold;display:flex;justify-content:space-between;
+            box-shadow:0 2px 6px rgba(0,0,0,0.2);z-index:9999;}
+</style>
+</head>
+<body>
+<div id="contador">
+  <span id="relogio"></span>
+  <span id="contagem">Total no acervo: 0 | Exibindo: 0</span>
+</div>
+
+<h1><span class="disco"></span> ACERVO FANA</h1>
+<!-- Personalização -->
+<input type="file" id="wallpaper" accept="image/*"><button onclick="trocarWallpaper()" class="skin">Papel de Parede</button>
+<input type="color" id="corTexto"><button onclick="trocarCorTexto()" class="skin">Cor da Letra</button>
+<button onclick="resetarVisual()" class="skin">Resetar Visual</button>
+
+<!-- Formulário -->
+<form id="formFilme">
+  <input id="titulo" placeholder="Título" required>
+  <input id="ator" placeholder="Ator" required>
+  <input id="quantidade" type="number" placeholder="Qtd" required>
+  <select id="estado"><option>novo</option><option>usado</option></select>
+  <select id="tipo"><option>original</option><option>pirata</option></select>
+  <select id="idioma"><option>dublado</option><option>legendado</option></select>
+  <input id="prateleira" placeholder="Prateleira" required>
+  <button type="submit" class="skin">Adicionar</button>
+</form>
+
+<div id="mensagem" class="msg"></div>
+
+<!-- Pesquisa -->
+<input id="pesquisa" placeholder="Pesquisar por título ou ator">
+<button onclick="pesquisar()" class="skin">Pesquisar</button>
+
+<!-- Barra A-Z -->
+<div class="barraAZ" id="letras"></div>
+<!-- Lista -->
+<table id="tabelaFilmes"><thead>
+<tr>
+  <th>Título 
+    <select onchange="filtrarTipo(this.value)">
+      <option value="">Selecionar tipo</option>
+      <option value="original">Originais</option>
+      <option value="pirata">Piratas</option>
+      <option value="todos">Ambos</option>
+    </select>
+  </th>
+  <th>Ator</th><th>Qtd</th><th>Estado</th><th>Tipo</th>
+  <th>Idioma</th><th>Prateleira</th><th>Ações</th>
+</tr>
+</thead><tbody></tbody></table>
+<script>
+const API="http://192.168.0.7:5000";
+let totalAcervo=0;
+
+function atualizarRelogio(){
+  const agora=new Date();
+  const op={timeZone:"America/Sao_Paulo",hour12:false,
+            day:"2-digit",month:"2-digit",year:"numeric",
+            hour:"2-digit",minute:"2-digit",second:"2-digit"};
+  document.getElementById("relogio").textContent=agora.toLocaleString("pt-BR",op);
+}
+setInterval(atualizarRelogio,1000);
+
+const neutro=document.createElement("button");
+neutro.textContent="Neutro";
+neutro.onclick=()=>{pesquisa.value="";tabelaFilmes.style.display="none";
+  contagem.textContent="Total no acervo: "+totalAcervo+" | Exibindo: 0";};
+document.getElementById("letras").appendChild(neutro);
+
+"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach(l=>{
+  const b=document.createElement("button");b.textContent=l;
+  b.onclick=()=>filtrarPorPrateleira(l,b);
+  document.getElementById("letras").appendChild(b);
+});
+
+window.onload=()=>{
+  if(localStorage.corTexto){document.body.style.color=localStorage.corTexto;contagem.style.color=localStorage.corTexto;}
+  if(localStorage.wallpaper)document.body.style.backgroundImage=`url(${localStorage.wallpaper})`;
+  listar();
+};
+
+function mostrarFilmes(f){
+  const tb=tabelaFilmes.querySelector("tbody");
+  tb.innerHTML="";
+  contagem.textContent="Total no acervo: "+totalAcervo+" | Exibindo: "+f.length;
+  tabelaFilmes.style.display=f.length?"table":"none";
+  f.forEach(x=>tb.innerHTML+=`<tr><td>${x.titulo}</td><td>${x.ator}</td><td>${x.quantidade}</td>
+  <td>${x.estado}</td><td>${x.tipo}</td><td>${x.idioma}</td><td>${x.prateleira}</td>
+  <td><button onclick='editarFilme(${x.id},${JSON.stringify(x)})'>Editar</button>
+  <button onclick="apagarFilme(${x.id})">Excluir</button></td></tr>`);
+}
+function listar(){
+  fetch(API+"/listar").then(r=>r.json()).then(f=>{
+    totalAcervo=f.length;
+    mostrarFilmes(f);
+  });
+}
+
+formFilme.onsubmit=e=>{
+  e.preventDefault();
+  const f={
+    titulo:titulo.value.trim(),
+    ator:ator.value.trim(),
+    quantidade:+quantidade.value,
+    estado:estado.value,
+    tipo:tipo.value,
+    idioma:idioma.value,
+    prateleira:prateleira.value.trim()
+  };
+  // Verifica duplicado
+  fetch(API+"/listar").then(r=>r.json()).then(lista=>{
+    const existe=lista.some(x=>
+      x.titulo.toLowerCase()===f.titulo.toLowerCase() &&
+      x.ator.toLowerCase()===f.ator.toLowerCase()
+    );
+    if(existe){
+      msg("Este filme já está cadastrado!","red");
+      return;
+    }
+    fetch(API+"/adicionar",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(f)
+    }).then(r=>r.json()).then(()=>{
+      msg("Filme adicionado!","green");
+      formFilme.reset();
+      listar();
+    });
+  });
+};
+
+function msg(t,cor){
+  mensagem.textContent=t;
+  mensagem.style.color=cor;
+  setTimeout(()=>mensagem.textContent="",3000);
+}
+function pesquisar(){
+  const termo=pesquisa.value.trim();
+  if(!termo){
+    tabelaFilmes.style.display="none";
+    contagem.textContent="Total no acervo: "+totalAcervo+" | Exibindo: 0";
+    return;
+  }
+  fetch(API+"/listar").then(r=>r.json()).then(f=>{
+    mostrarFilmes(f.filter(x=>
+      x.titulo.toLowerCase().includes(termo.toLowerCase()) ||
+      x.ator.toLowerCase().includes(termo.toLowerCase())
+    ));
+  });
+}
+
+// Se apagar texto, some a tabela
+pesquisa.addEventListener("input",()=>{
+  if(pesquisa.value.trim()===""){
+    tabelaFilmes.style.display="none";
+    contagem.textContent="Total no acervo: "+totalAcervo+" | Exibindo: 0";
+  }
+});
+
+pesquisa.addEventListener("keypress",e=>{
+  if(e.key==="Enter"){e.preventDefault();pesquisar();}
+});
+
+function filtrarPorPrateleira(l,b){
+  document.querySelectorAll(".barraAZ button").forEach(x=>x.classList.remove("selecionado"));
+  b.classList.add("selecionado");
+  fetch(API+"/listar").then(r=>r.json()).then(f=>{
+    mostrarFilmes(f.filter(x=>x.prateleira.toUpperCase().startsWith(l)));
+  });
+}
+
+function filtrarTipo(tipo){
+  fetch(API+"/listar").then(r=>r.json()).then(f=>{
+    if(tipo==="todos"){mostrarFilmes(f);return;}
+    const filtrados=f.filter(x=>x.tipo.toLowerCase()===tipo);
+    mostrarFilmes(filtrados); // só mostra se houver, senão tabela vazia
+  });
+}
+function editarFilme(id,f){
+  const n={
+    titulo:prompt("Título:",f.titulo),
+    ator:prompt("Ator:",f.ator),
+    quantidade:+prompt("Quantidade:",f.quantidade),
+    estado:prompt("Estado:",f.estado),
+    tipo:prompt("Tipo:",f.tipo),
+    idioma:prompt("Idioma:",f.idioma),
+    prateleira:prompt("Prateleira:",f.prateleira)
+  };
+  fetch(API+"/editar/"+id,{
+    method:"PUT",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(n)
+  }).then(()=>listar());
+}
+
+function apagarFilme(id){
+  if(confirm("Tem certeza que deseja excluir este filme?")){
+    fetch(API+"/apagar/"+id,{method:"DELETE"}).then(()=>listar());
+  }
+}
+function listar(){
+  fetch(API+"/listar").then(r=>r.json()).then(f=>{
+    totalAcervo=f.length;
+    mostrarFilmes(f);
+  });
+}
+
+formFilme.onsubmit=e=>{
+  e.preventDefault();
+  const f={
+    titulo:titulo.value.trim(),
+    ator:ator.value.trim(),
+    quantidade:+quantidade.value,
+    estado:estado.value,
+    tipo:tipo.value,
+    idioma:idioma.value,
+    prateleira:prateleira.value.trim()
+  };
+  fetch(API+"/listar").then(r=>r.json()).then(lista=>{
+    const existe=lista.some(x=>
+      x.titulo.toLowerCase()===f.titulo.toLowerCase() &&
+      x.ator.toLowerCase()===f.ator.toLowerCase()
+    );
+    if(existe){
+      msg("Este filme já está cadastrado!","red");
+      pesquisa.value=""; // limpa barra
+      return;
+    }
+    fetch(API+"/adicionar",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(f)
+    }).then(r=>r.json()).then(()=>{
+      msg("Filme adicionado!","green");
+      formFilme.reset();
+      pesquisa.value=""; // limpa barra
+      listar();
+    });
+  });
+};
+
+function msg(t,cor){
+  mensagem.textContent=t;
+  mensagem.style.color=cor;
+  setTimeout(()=>mensagem.textContent="",3000);
+}
+function pesquisar(){
+  const termo=pesquisa.value.trim();
+  if(!termo){
+    tabelaFilmes.style.display="none";
+    contagem.textContent="Total no acervo: "+totalAcervo+" | Exibindo: 0";
+    return;
+  }
+  fetch(API+"/listar").then(r=>r.json()).then(f=>{
+    mostrarFilmes(f.filter(x=>
+      x.titulo.toLowerCase().includes(termo.toLowerCase()) ||
+      x.ator.toLowerCase().includes(termo.toLowerCase())
+    ));
+  });
+}
+
+pesquisa.addEventListener("input",()=>{
+  if(pesquisa.value.trim()===""){
+    tabelaFilmes.style.display="none";
+    contagem.textContent="Total no acervo: "+totalAcervo+" | Exibindo: 0";
+  }
+});
+
+pesquisa.addEventListener("keypress",e=>{
+  if(e.key==="Enter"){e.preventDefault();pesquisar();}
+});
+
+function filtrarPorPrateleira(l,b){
+  document.querySelectorAll(".barraAZ button").forEach(x=>x.classList.remove("selecionado"));
+  b.classList.add("selecionado");
+  fetch(API+"/listar").then(r=>r.json()).then(f=>{
+    mostrarFilmes(f.filter(x=>x.prateleira.toUpperCase().startsWith(l)));
+  });
+}
+
+function filtrarTipo(tipo){
+  fetch(API+"/listar").then(r=>r.json()).then(f=>{
+    if(tipo==="todos"){mostrarFilmes(f);return;}
+    const filtrados=f.filter(x=>x.tipo.toLowerCase()===tipo);
+    mostrarFilmes(filtrados);
+  });
+}
+function editarFilme(id,f){
+  const n={
+    titulo:prompt("Título:",f.titulo),
+    ator:prompt("Ator:",f.ator),
+    quantidade:+prompt("Quantidade:",f.quantidade),
+    estado:prompt("Estado:",f.estado),
+    tipo:prompt("Tipo:",f.tipo),
+    idioma:prompt("Idioma:",f.idioma),
+    prateleira:prompt("Prateleira:",f.prateleira)
+  };
+  fetch(API+"/editar/"+id,{
+    method:"PUT",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(n)
+  }).then(()=>listar());
+}
+
+function apagarFilme(id){
+  if(confirm("Tem certeza que deseja excluir este filme?")){
+    fetch(API+"/apagar/"+id,{method:"DELETE"}).then(()=>listar());
+  }
+}
+// Parte 8 – Barra principal com filmes, moedas e clima
+
+const contador = document.getElementById("contador");
+const contagem = document.getElementById("contagem");
+
+// Span para filmes/moedas
+const cinemaSpan = document.createElement("span");
+cinemaSpan.id = "cinemaSpan";
+cinemaSpan.style.margin = "0 auto";
+cinemaSpan.style.transition = "opacity 0.5s ease"; 
+contador.insertBefore(cinemaSpan, contagem);
+
+// Span para clima ao lado da hora/data
+const climaSpan = document.createElement("span");
+climaSpan.id = "climaSpan";
+climaSpan.style.marginLeft = "20px";
+contador.appendChild(climaSpan);
+
+let filmesCinema = [];
+let indiceFilme = 0;
+let ultimoValido = [
+  "💵 Dólar: 1 USD = R$ 5.20",
+  "💶 Euro: 1 USD = € 0.92",
+  "💷 Libra: 1 USD = £ 0.79",
+  "💴 Iene: 1 USD = ¥ 150.00"
+]; // valores iniciais
+
+// Função para buscar filmes
+async function carregarFilmesCinema(){
+  try{
+    const urls = [
+      "https://cinepolisapi.heroku.com/filmes",   // Cinépolis (exemplo)
+      "https://api-filmes-em-cartaz.vercel.app", // Centerplex (exemplo)
+      "https://cinemark-api.herokuapp.com"       // Cinemark (exemplo)
+    ];
+
+    const respostas = await Promise.all(
+      urls.map(u=>fetch(u).then(r=>r.json()).catch(()=>[]))
+    );
+
+    let novosFilmes = [];
+
+    respostas.forEach((dados,i)=>{
+      if(Array.isArray(dados)){
+        dados.forEach(f=>{
+          let cinemaNome = i===0 ? "Cinépolis" : i===1 ? "Centerplex" : "Cinemark";
+          if(f.titulo){ 
+            novosFilmes.push(`🎬 ${f.titulo} - ${cinemaNome}`);
+          }
+        });
+      }
+    });
+
+    if(novosFilmes.length>0){
+      filmesCinema = novosFilmes;
+      ultimoValido = novosFilmes;
+    }else{
+      await carregarMoedas(); // fallback moedas
+    }
+
+    indiceFilme = 0;
+    atualizarCinema();
+  }catch(e){
+    await carregarMoedas(); // fallback moedas
+    atualizarCinema();
+  }
+}
+
+// Função para moedas
+async function carregarMoedas(){
+  try{
+    const resp = await fetch("https://api.exchangerate.host/latest?base=USD&symbols=BRL,EUR,GBP,JPY");
+    const dados = await resp.json();
+    const usdBrl = dados.rates.BRL.toFixed(2);
+    const usdEur = dados.rates.EUR.toFixed(2);
+    const usdGbp = dados.rates.GBP.toFixed(2);
+    const usdJpy = dados.rates.JPY.toFixed(2);
+
+    filmesCinema = [
+      `💵 Dólar: 1 USD = R$ ${usdBrl}`,
+      `💶 Euro: 1 USD = € ${usdEur}`,
+      `💷 Libra: 1 USD = £ ${usdGbp}`,
+      `💴 Iene: 1 USD = ¥ ${usdJpy}`
+    ];
+    ultimoValido = filmesCinema;
+  }catch(e){
+    filmesCinema = ultimoValido;
+  }
+}
+
+// Função para clima (exemplo usando Open-Meteo)
+async function carregarClima(){
+  try{
+    const resp = await fetch("https://api.open-meteo.com/v1/forecast?latitude=-23.55&longitude=-46.63&current_weather=true");
+    const dados = await resp.json();
+    const tempSp = dados.current_weather.temperature;
+
+    climaSpan.textContent = `🌡️ São Paulo: ${tempSp}°C`;
+    climaSpan.style.color = document.body.style.color;
+  }catch(e){
+    climaSpan.textContent = "🌡️ Clima indisponível";
+  }
+}
+
+function atualizarCinema(){
+  if(filmesCinema.length===0) return;
+  cinemaSpan.textContent = filmesCinema[indiceFilme];
+  cinemaSpan.style.color = document.body.style.color; 
+  indiceFilme = (indiceFilme + 1) % filmesCinema.length;
+}
+
+// Alterna a cada 5 segundos
+setInterval(()=>{
+  cinemaSpan.style.opacity = 0;
+  setTimeout(()=>{
+    atualizarCinema();
+    cinemaSpan.style.opacity = 1;
+  },500);
+},5000);
+
+// Atualiza dados a cada 6 minutos
+setInterval(carregarFilmesCinema, 360000);
+setInterval(carregarClima, 600000);
+
+// Carrega ao iniciar
+carregarFilmesCinema();
+carregarClima();
+
+// Personalização
+function trocarWallpaper(){
+  const f=wallpaper.files[0];
+  if(f){
+    const r=new FileReader();
+    r.onload=e=>{
+      document.body.style.backgroundImage=`url(${e.target.result})`;
+      localStorage.wallpaper=e.target.result;
+    };
+    r.readAsDataURL(f);
+  }
+}
+
+function trocarCorTexto(){
+  document.body.style.color=corTexto.value;
+  contagem.style.color=corTexto.value;
+  cinemaSpan.style.color=corTexto.value;
+  climaSpan.style.color=corTexto.value;
+  localStorage.corTexto=corTexto.value;
+}
+
+function resetarVisual(){
+  localStorage.clear();
+  document.body.style.color="";
+  document.body.style.backgroundImage="";
+  contagem.style.color="";
+  cinemaSpan.style.color="";
+  climaSpan.style.color="";
+}
+</script>
+</body>
+</html>
